@@ -13,6 +13,7 @@ from streamlit_auth import (
     authenticate_user,
     delete_user,
     ensure_credentials_file,
+    ensure_admin_user,
     get_all_users,
     is_admin_user,
     register_user,
@@ -32,6 +33,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 ensure_credentials_file()
+# Ensure an admin user exists on first run. If created, this returns (True, email, password)
+first_run_admin_created, first_admin_email, first_admin_password = ensure_admin_user()
 
 # Initialize session state
 if "authenticated" not in st.session_state:
@@ -703,6 +706,32 @@ def main() -> None:
             )
         
         st.info("👆 Please log in or create an account in the sidebar to access the dashboard.")
+        # If an admin was created on first run, show the credentials so the operator can
+        # copy them and log in. This is intended for local/dev first-run convenience only.
+        if first_run_admin_created:
+            st.markdown("---")
+            st.warning("🚨 First-run admin account created. Please save these credentials and change the password after first login.")
+            st.code(f"Email: {first_admin_email}\nPassword: {first_admin_password}", language="text")
+            st.markdown(
+                "**Security note:** These credentials are displayed only once for initial setup. If you deploy this app publicly, rotate or remove this account immediately."
+            )
+
+        # Developer-only: allow creating an admin only if no admin exists. Once an
+        # admin account exists this UI will not allow creation again.
+        with st.expander("Developer / One-time admin creation"):
+            st.write("Create a new admin account and display the credentials (only available when no admin exists).")
+            users = get_all_users()
+            admin_count = sum(1 for u in users if u.get("is_admin", False))
+            if admin_count > 0:
+                st.info("An admin account already exists. Creation is disabled to prevent accidental overwrites.")
+            else:
+                if st.button("Create Admin Account and Show Credentials"):
+                    created, email, password = ensure_admin_user()
+                    if created:
+                        st.success("✅ Admin account created. Save the credentials now.")
+                        st.code(f"Email: {email}\nPassword: {password}", language="text")
+                    else:
+                        st.error("❌ Failed to create admin account.")
         return
     
     # Check if user is admin and show admin option

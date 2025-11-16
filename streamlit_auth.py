@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from typing import Dict, Tuple
+import secrets
+import string
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -23,6 +25,50 @@ def ensure_credentials_file() -> None:
     CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
     if not CREDENTIALS_PATH.exists():
         CREDENTIALS_PATH.write_text(json.dumps({"users": []}, indent=2), encoding="utf-8")
+
+
+def ensure_admin_user(default_email: str = "admin@example.com", force: bool = False) -> Tuple[bool, str, str]:
+    """
+    Ensure there is at least one admin user. If no admin exists, create one with a
+    generated secure password and return (True, email, plain_password). If an admin
+    already exists, return (False, "", "").
+
+    Note: The plain password is only returned once to display to the operator on
+    first run; the stored password is hashed.
+    """
+    ensure_credentials_file()
+    with _LOCK:
+        payload = _load_credentials()
+        users = payload.get("users", [])
+
+        # If any admin exists and not forcing creation, nothing to do
+        if not force and any(u.get("is_admin", False) for u in users):
+            return False, "", ""
+
+        # Pick a unique email based on the default
+        local_part, at, domain = default_email.partition("@")
+        email = default_email
+        suffix = 1
+        existing = {u.get("email") for u in users}
+        while email in existing:
+            email = f"{local_part}{suffix}@{domain}"
+            suffix += 1
+
+        # Generate a secure password
+        alphabet = string.ascii_letters + string.digits + "!@#$%^&*()-_=+"
+        password = "".join(secrets.choice(alphabet) for _ in range(12))
+        password_hash = generate_password_hash(password)
+
+        users.append({
+            "email": email,
+            "password_hash": password_hash,
+            "is_admin": True,
+            "created_at": datetime.now().isoformat(),
+        })
+        payload["users"] = users
+        _save_credentials(payload)
+
+    return True, email, password
 
 
 def _load_credentials() -> Dict[str, list]:
